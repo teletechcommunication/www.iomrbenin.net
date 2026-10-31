@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IOMR Benin</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.svg" sizes="any">
+<style>
+  html, body { margin: 0; background: #525659; font-family: system-ui, sans-serif; }
+  #pages { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 8px 0; }
+  canvas { display: block; background: #fff; max-width: 100%; box-shadow: 0 1px 4px rgba(0,0,0,.4); -webkit-user-select: none; user-select: none; }
+  #status { color: #fff; text-align: center; padding: 24px; }
+</style>
+</head>
+<body>
+<div id="status">Loading…</div>
+<div id="pages"></div>
+<script src="/vendor/pdfjs/pdf.min.js"></script>
+<script>
+  pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.js';
+
+  var container = document.getElementById('pages');
+  var statusEl = document.getElementById('status');
+  var entries = [];
+  var observer;
+
+  function targetWidth() {
+    return Math.min(document.documentElement.clientWidth - 16, 1100);
+  }
+
+  function renderEntry(e) {
+    if (e.busy) return;
+    var width = targetWidth();
+    if (e.renderedWidth === width) return;
+    e.busy = true;
+    var base = e.page.getViewport({ scale: 1 });
+    var scale = width / base.width;
+    var dpr = window.devicePixelRatio || 1;
+    var viewport = e.page.getViewport({ scale: scale * dpr });
+    e.canvas.width = viewport.width;
+    e.canvas.height = viewport.height;
+    e.canvas.style.width = width + 'px';
+    e.canvas.style.height = (base.height * scale) + 'px';
+    e.page.render({ canvasContext: e.canvas.getContext('2d'), viewport: viewport }).promise.then(function () {
+      e.renderedWidth = width;
+      e.busy = false;
+      if (targetWidth() !== width && e.visible) renderEntry(e);
+    });
+  }
+
+  function layoutEntry(e) {
+    var base = e.page.getViewport({ scale: 1 });
+    var width = targetWidth();
+    e.canvas.style.width = width + 'px';
+    e.canvas.style.height = (base.height * width / base.width) + 'px';
+  }
+
+  pdfjsLib.getDocument('IOMR%20CLASS%20INTERIM_HORNET_CSSE.pdf').promise.then(function (pdf) {
+    statusEl.remove();
+    observer = new IntersectionObserver(function (items) {
+      items.forEach(function (it) {
+        var e = it.target._entry;
+        e.visible = it.isIntersecting;
+        if (e.visible) renderEntry(e);
+      });
+    }, { rootMargin: '600px 0px' });
+
+    var jobs = [];
+    for (var n = 1; n <= pdf.numPages; n++) jobs.push(pdf.getPage(n));
+    return Promise.all(jobs).then(function (pages) {
+      pages.forEach(function (page) {
+        var canvas = document.createElement('canvas');
+        var e = { page: page, canvas: canvas, visible: false, busy: false, renderedWidth: 0 };
+        canvas._entry = e;
+        entries.push(e);
+        layoutEntry(e);
+        container.appendChild(canvas);
+        observer.observe(canvas);
+      });
+    });
+  }).catch(function (err) {
+    statusEl.textContent = 'Unable to load the document.'; console.error(err);
+  });
+
+  var resizeTimer;
+  window.addEventListener('resize', function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () {
+      entries.forEach(function (e) {
+        layoutEntry(e);
+        if (e.visible) renderEntry(e);
+      });
+    }, 200);
+  });
+
+  document.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
+</script>
+</body>
+</html>
